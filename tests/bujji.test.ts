@@ -177,6 +177,13 @@ describe('WhatsApp JID filtering', () => {
     expect(isChatAllowed('15551234567@s.whatsapp.net', '15551234567:4@s.whatsapp.net', [])).toBe(
       true,
     );
+    expect(
+      isChatAllowed(
+        '99887766554433@lid',
+        ['15551234567:4@s.whatsapp.net', '99887766554433:2@lid'],
+        [],
+      ),
+    ).toBe(true);
     expect(isChatAllowed('19998887777@s.whatsapp.net', '15551234567:4@s.whatsapp.net', [])).toBe(
       false,
     );

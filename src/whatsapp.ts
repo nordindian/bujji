@@ -20,11 +20,12 @@ export function normalizeJid(jid: string): string {
 
 export function isChatAllowed(
   remoteJid: string,
-  myJid: string | undefined,
+  selfIds: Array<string | undefined> | string | undefined,
   allowedChats: string[],
 ): boolean {
   const normalizedRemote = normalizeJid(remoteJid);
-  if (myJid && normalizedRemote === normalizeJid(myJid)) {
+  const ids = Array.isArray(selfIds) ? selfIds : [selfIds];
+  if (ids.some((id) => id && normalizedRemote === normalizeJid(id))) {
     return true;
   }
   return allowedChats.some((allowed) => normalizeJid(allowed) === normalizedRemote);
@@ -152,13 +153,19 @@ export class WhatsAppBridge {
         const remoteJid = msg.key.remoteJid;
         if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
-        if (!isChatAllowed(remoteJid, sock.user?.id, this.config.allowedChats)) {
-          continue;
-        }
-
         const text = extractText(msg);
         if (!text) continue;
 
+        if (!isChatAllowed(remoteJid, [sock.user?.id, sock.user?.lid], this.config.allowedChats)) {
+          if (msg.key.fromMe) {
+            console.log(
+              `[WhatsApp] Ignored fromMe message in ${remoteJid}. Add to ALLOWED_CHATS in .env if this is your chat.`,
+            );
+          }
+          continue;
+        }
+
+        console.log(`[WhatsApp] Received: "${text.slice(0, 60)}"`);
         await this.handleIncoming(remoteJid, text);
       }
     });
