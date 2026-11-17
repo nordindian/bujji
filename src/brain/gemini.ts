@@ -248,9 +248,10 @@ export class GeminiBrain implements Brain {
     const candidateModels = Array.from(
       new Set([
         this.config.geminiModel,
-        'gemini-3.8-flash-lite',
-        'gemini-3.8-pro',
-        'gemini-2.5-flash-lite',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash',
+        'gemini-3.8-flash',
+        'gemini-3.5-pro',
       ]),
     );
 

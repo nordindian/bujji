@@ -6,6 +6,9 @@ import type { UsageState } from './types.js';
 // Conservative per-1M-token pricing in USD so the local guardrail triggers slightly early rather than late.
 const MODEL_PRICING: Record<string, { inputPer1M: number; outputPer1M: number }> = {
   'gemini-3.8-flash': { inputPer1M: 0.30, outputPer1M: 2.50 },
+  'gemini-3.5-flash-lite': { inputPer1M: 0.10, outputPer1M: 0.40 },
+  'gemini-3.5-flash': { inputPer1M: 0.30, outputPer1M: 2.50 },
+  'gemini-3.5-pro': { inputPer1M: 1.25, outputPer1M: 10.0 },
   'gemini-2.5-flash': { inputPer1M: 0.30, outputPer1M: 2.50 },
   'gemini-2.5-flash-lite': { inputPer1M: 0.10, outputPer1M: 0.40 },
   'gemini-2.5-pro': { inputPer1M: 1.25, outputPer1M: 10.0 },
