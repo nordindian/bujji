@@ -202,6 +202,7 @@ export class GeminiBrain implements Brain {
         'x-goog-api-key': this.config.geminiApiKey,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
     });
 
     const body = (await response.json()) as GeminiApiResponse;

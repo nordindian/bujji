@@ -327,8 +327,10 @@ export class WhatsAppBridge {
     }
 
     try {
-      await this.sock?.sendPresenceUpdate('composing', chatJid);
+      void this.sock?.sendPresenceUpdate('composing', chatJid).catch(() => {});
+      console.log(`[Brain] Processing message (${this.config.brainProvider})...`);
       const response = await this.brain.reply(chatJid, input);
+      console.log(`[Brain] Sending reply (${response.text.length} chars)...`);
 
       if (response.text) {
         await this.sendText(chatJid, response.text);
@@ -341,7 +343,7 @@ export class WhatsAppBridge {
       console.error('Error handling message:', message);
       await this.sendText(chatJid, `Sorry, I hit an error:\n${message}`);
     } finally {
-      await this.sock?.sendPresenceUpdate('paused', chatJid).catch(() => {});
+      void this.sock?.sendPresenceUpdate('paused', chatJid).catch(() => {});
     }
   }
 }
