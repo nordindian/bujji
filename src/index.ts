@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import { createBrain } from './brain/index.js';
 import { loadConfig } from './config.js';
 import { BudgetGuardrail } from './guardrail.js';
@@ -5,6 +6,8 @@ import { ReminderScheduler } from './scheduler.js';
 import { JsonStore } from './store.js';
 import { startWebDashboard } from './web.js';
 import { WhatsAppBridge } from './whatsapp.js';
+
+dns.setDefaultResultOrder('ipv4first');
 
 async function main(): Promise<void> {
   const config = loadConfig();
