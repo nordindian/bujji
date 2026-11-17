@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
+  normalizeMessageContent,
   useMultiFileAuthState,
   type WASocket,
   type WAMessage,
@@ -34,7 +35,7 @@ export function isChatAllowed(
 }
 
 export function extractText(msg: WAMessage): string {
-  const m = msg.message;
+  const m = normalizeMessageContent(msg.message);
   if (!m) return '';
   return (
     m.conversation ||
@@ -156,8 +157,9 @@ export class WhatsAppBridge {
         const remoteJid = msg.key.remoteJid;
         if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
+        const unwrapped = normalizeMessageContent(msg.message);
         const text = extractText(msg);
-        const audioMsg = msg.message?.audioMessage;
+        const audioMsg = unwrapped?.audioMessage;
 
         if (!text && !audioMsg) continue;
 

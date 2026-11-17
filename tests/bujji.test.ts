@@ -11,7 +11,7 @@ import { ReminderScheduler } from '../src/scheduler.js';
 import { JsonStore } from '../src/store.js';
 import { executeTool } from '../src/tools/index.js';
 import { renderDashboardHtml } from '../src/web.js';
-import { isChatAllowed, normalizeJid } from '../src/whatsapp.js';
+import { extractText, isChatAllowed, normalizeJid } from '../src/whatsapp.js';
 
 function makeTestConfig(tmpDir: string, overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -342,5 +342,19 @@ describe('WhatsApp JID filtering', () => {
         '19998887777@s.whatsapp.net',
       ]),
     ).toBe(true);
+  });
+
+  it('extracts text from ephemeralMessage wrappers', () => {
+    const text = extractText({
+      key: { remoteJid: '123@s.whatsapp.net' },
+      message: {
+        ephemeralMessage: {
+          message: {
+            extendedTextMessage: { text: 'Hi from disappearing chat' },
+          },
+        },
+      },
+    });
+    expect(text).toBe('Hi from disappearing chat');
   });
 });
