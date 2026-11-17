@@ -17,7 +17,7 @@ function makeTestConfig(tmpDir: string, overrides: Partial<AppConfig> = {}): App
   return {
     brainProvider: 'gemini',
     geminiApiKey: 'test-key',
-    geminiModel: 'gemini-2.5-flash',
+    geminiModel: 'gemini-3.8-flash',
     geminiBudgetLimitUsd: 1.0,
     alertEmail: '',
     smtpHost: 'smtp.gmail.com',

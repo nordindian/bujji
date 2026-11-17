@@ -41,7 +41,7 @@ export function loadConfig(): AppConfig {
   return {
     brainProvider,
     geminiApiKey: (process.env.GEMINI_API_KEY ?? '').trim(),
-    geminiModel: (process.env.GEMINI_MODEL ?? 'gemini-2.5-flash').trim(),
+    geminiModel: (process.env.GEMINI_MODEL ?? 'gemini-3.8-flash').trim(),
     geminiBudgetLimitUsd: Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : 1.0,
     alertEmail: (process.env.ALERT_EMAIL ?? '').trim(),
     smtpHost: (process.env.SMTP_HOST ?? 'smtp.gmail.com').trim(),
