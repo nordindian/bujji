@@ -251,7 +251,6 @@ export class GeminiBrain implements Brain {
         'gemini-3.5-flash-lite',
         'gemini-3.5-flash',
         'gemini-3.8-flash',
-        'gemini-3.5-pro',
       ]),
     );
 
@@ -261,22 +260,34 @@ export class GeminiBrain implements Brain {
       const path = `/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const { status, rawBody } = await postJsonIpv4(
-          'generativelanguage.googleapis.com',
-          path,
-          {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': this.config.geminiApiKey,
-          },
-          bodyJson,
-          45_000,
-        );
+        let status: number;
+        let body: GeminiApiResponse;
+        try {
+          const res = await postJsonIpv4(
+            'generativelanguage.googleapis.com',
+            path,
+            {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': this.config.geminiApiKey,
+            },
+            bodyJson,
+            20_000,
+          );
+          status = res.status;
+          body = JSON.parse(res.rawBody) as GeminiApiResponse;
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : String(err);
+          console.log(`[Brain] Falling back from ${model} (${lastError})...`);
+          break;
+        }
 
-        const body = JSON.parse(rawBody) as GeminiApiResponse;
         if (status >= 200 && status < 300) {
           const promptTokens = body.usageMetadata?.promptTokenCount ?? 0;
           const outputTokens = body.usageMetadata?.candidatesTokenCount ?? 0;
           await this.guardrail.recordAndCheck(chatJid, model, promptTokens, outputTokens);
+          if (model !== this.config.geminiModel) {
+            console.log(`[Brain] Answered with fallback model ${model}`);
+          }
           return body;
         }
 
