@@ -231,10 +231,6 @@ export class GeminiBrain implements Brain {
     contents: GeminiContent[],
     enableTools: boolean,
   ): Promise<GeminiApiResponse> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      this.config.geminiModel,
-    )}:generateContent`;
-
     const payload: Record<string, unknown> = {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents,
@@ -248,25 +244,70 @@ export class GeminiBrain implements Brain {
       ];
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': this.config.geminiApiKey,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const bodyJson = JSON.stringify(payload);
+    const candidateModels = Array.from(
+      new Set([
+        this.config.geminiModel,
+        'gemini-3.8-flash-lite',
+        'gemini-3.8-pro',
+        'gemini-2.5-flash-lite',
+      ]),
+    );
 
-    const body = (await response.json()) as GeminiApiResponse;
-    if (!response.ok) {
-      throw new Error(body.error?.message || `Gemini HTTP ${response.status}`);
+    let lastError = 'Gemini API request failed.';
+
+    for (const model of candidateModels) {
+      const path = `/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const { status, rawBody } = await postJsonIpv4(
+          'generativelanguage.googleapis.com',
+          path,
+          {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.config.geminiApiKey,
+          },
+          bodyJson,
+          45_000,
+        );
+
+        const body = JSON.parse(rawBody) as GeminiApiResponse;
+        if (status >= 200 && status < 300) {
+          const promptTokens = body.usageMetadata?.promptTokenCount ?? 0;
+          const outputTokens = body.usageMetadata?.candidatesTokenCount ?? 0;
+          await this.guardrail.recordAndCheck(chatJid, model, promptTokens, outputTokens);
+          return body;
+        }
+
+        const msg = body.error?.message || `Gemini HTTP ${status}`;
+        lastError = msg;
+
+        const isOverloaded =
+          status === 503 ||
+          status === 429 ||
+          msg.toLowerCase().includes('high demand') ||
+          msg.toLowerCase().includes('overloaded');
+
+        if (isOverloaded && attempt === 1) {
+          console.log(`[Brain] ${model} busy, retrying in 1.5s...`);
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+
+        if (
+          isOverloaded ||
+          status === 404 ||
+          msg.toLowerCase().includes('no longer available') ||
+          msg.toLowerCase().includes('not found')
+        ) {
+          console.log(`[Brain] Falling back from ${model} (${msg})...`);
+          break;
+        }
+
+        throw new Error(msg);
+      }
     }
 
-    const promptTokens = body.usageMetadata?.promptTokenCount ?? 0;
-    const outputTokens = body.usageMetadata?.candidatesTokenCount ?? 0;
-    await this.guardrail.recordAndCheck(chatJid, this.config.geminiModel, promptTokens, outputTokens);
-
-    return body;
+    throw new Error(lastError);
   }
 }
