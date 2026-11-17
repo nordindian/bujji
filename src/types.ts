@@ -1,4 +1,6 @@
 export type Recurrence = 'none' | 'daily' | 'weekly';
+export type TaskStatus = 'todo' | 'in_progress' | 'done';
+export type TaskPriority = 'low' | 'medium' | 'high';
 
 export interface Reminder {
   id: string;
@@ -12,11 +14,34 @@ export interface Reminder {
 
 export interface Note {
   id: string;
+  category: string;
   title: string;
   content: string;
   tags: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  category: string;
+  dueAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsageState {
+  promptTokens: number;
+  outputTokens: number;
+  estimatedUsd: number;
+  budgetLimitUsd: number;
+  locked: boolean;
+  alertSent: boolean;
+  lastUpdatedAt: string;
 }
 
 export interface ChatMessage {
@@ -52,11 +77,20 @@ export interface Attachment {
   caption?: string;
 }
 
+export interface BrainInput {
+  text?: string;
+  audio?: {
+    buffer: Buffer;
+    mimetype: string;
+  };
+  flowMode?: boolean;
+}
+
 export interface BrainResponse {
   text: string;
   attachments: Attachment[];
 }
 
 export interface Brain {
-  reply(chatJid: string, userMessage: string): Promise<BrainResponse>;
+  reply(chatJid: string, input: BrainInput): Promise<BrainResponse>;
 }

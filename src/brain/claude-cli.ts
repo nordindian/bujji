@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AppConfig } from '../config.js';
 import type { JsonStore } from '../store.js';
-import type { Brain, BrainResponse } from '../types.js';
+import type { Brain, BrainInput, BrainResponse } from '../types.js';
 import { buildSystemPrompt } from './ollama.js';
 
 const execFileAsync = promisify(execFile);
@@ -13,7 +13,15 @@ export class ClaudeCliBrain implements Brain {
     private readonly store: JsonStore,
   ) {}
 
-  async reply(chatJid: string, userMessage: string): Promise<BrainResponse> {
+  async reply(chatJid: string, input: BrainInput): Promise<BrainResponse> {
+    if (input.audio && !input.text) {
+      return {
+        text: 'Voice notes require BRAIN_PROVIDER=gemini in .env.',
+        attachments: [],
+      };
+    }
+
+    const userMessage = (input.text ?? '').trim();
     const history = this.store.getHistory(chatJid);
     const contextLines = history
       .slice(-8)

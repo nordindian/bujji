@@ -1,5 +1,6 @@
 import makeWASocket, {
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
   type WASocket,
@@ -8,8 +9,9 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import type { AppConfig } from './config.js';
+import type { BudgetGuardrail } from './guardrail.js';
 import type { JsonStore } from './store.js';
-import type { Attachment, Brain } from './types.js';
+import type { Attachment, Brain, BrainInput } from './types.js';
 
 export function normalizeJid(jid: string): string {
   const [userPart, serverPart] = jid.split('@');
@@ -52,6 +54,7 @@ export class WhatsAppBridge {
     private readonly config: AppConfig,
     private readonly store: JsonStore,
     private readonly brain: Brain,
+    private readonly guardrail: BudgetGuardrail,
   ) {}
 
   async start(): Promise<void> {
@@ -117,7 +120,7 @@ export class WhatsAppBridge {
       if (connection === 'open') {
         const myJid = sock.user?.id ? normalizeJid(sock.user.id) : 'unknown';
         console.log(`Bujji is connected to WhatsApp as ${myJid}`);
-        console.log('Open your "Message Yourself" chat on WhatsApp and send a message!\n');
+        console.log('Send /help in "Message Yourself" (or send /setchat in a 1-person group).\n');
       }
 
       if (connection === 'close') {
@@ -154,25 +157,63 @@ export class WhatsAppBridge {
         if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
         const text = extractText(msg);
-        if (!text) continue;
+        const audioMsg = msg.message?.audioMessage;
+
+        if (!text && !audioMsg) continue;
+
+        // Allow /setchat from the owner inside any group to reveal its JID for .env
+        if (text.trim().toLowerCase() === '/setchat' && msg.key.fromMe) {
+          console.log(`\n[WhatsApp] Group JID: ${remoteJid}`);
+          console.log(`Add this to your .env file:\nALLOWED_CHATS=${remoteJid}\n`);
+          await this.sendText(
+            remoteJid,
+            `To dedicate Bujji to this chat, add this line to your .env and restart:\n\nALLOWED_CHATS=${remoteJid}`,
+          );
+          continue;
+        }
 
         if (!isChatAllowed(remoteJid, [sock.user?.id, sock.user?.lid], this.config.allowedChats)) {
           if (msg.key.fromMe) {
             console.log(
-              `[WhatsApp] Ignored fromMe message in ${remoteJid}. Add to ALLOWED_CHATS in .env if this is your chat.`,
+              `[WhatsApp] Ignored fromMe message in ${remoteJid}. Send /setchat there or add to ALLOWED_CHATS in .env.`,
             );
           }
           continue;
         }
 
-        console.log(`[WhatsApp] Received: "${text.slice(0, 60)}"`);
-        await this.handleIncoming(remoteJid, text);
+        let input: BrainInput = {
+          text: text || undefined,
+          flowMode: this.store.isFlowMode(remoteJid),
+        };
+
+        if (audioMsg) {
+          console.log(`[WhatsApp] Received voice note (${audioMsg.seconds ?? '?'}s)`);
+          try {
+            const buffer = (await downloadMediaMessage(msg, 'buffer', {})) as Buffer;
+            input = {
+              ...input,
+              audio: {
+                buffer,
+                mimetype: audioMsg.mimetype || 'audio/ogg',
+              },
+            };
+          } catch (err) {
+            console.error('Failed to download voice note:', err);
+            await this.sendText(remoteJid, 'Could not download that voice note. Please try again.');
+            continue;
+          }
+        } else {
+          console.log(`[WhatsApp] Received: "${text.slice(0, 60)}"`);
+        }
+
+        await this.handleIncoming(remoteJid, input);
       }
     });
   }
 
-  private async handleIncoming(chatJid: string, text: string): Promise<void> {
-    const cmd = text.trim().toLowerCase();
+  private async handleIncoming(chatJid: string, input: BrainInput): Promise<void> {
+    const rawText = (input.text ?? '').trim();
+    const cmd = rawText.toLowerCase();
 
     if (cmd === '/help') {
       await this.sendText(
@@ -180,18 +221,59 @@ export class WhatsAppBridge {
         [
           '*Bujji — Your Personal Assistant*',
           '',
-          'Just chat naturally:',
+          'Talk or send voice notes naturally:',
           '• "Remind me tomorrow at 9am to call the supplier"',
           '• "Schedule a strategy review on Friday at 3pm"',
-          '• "Save a note: Q1 pricing idea..."',
-          '• "Let\'s brainstorm pricing for my service"',
+          '• "Add task: Launch landing page (high priority)"',
+          '• "Save a page in Business Strategy: Q1 pricing..."',
           '',
           '*Commands:*',
+          '/flow — toggle Wispr Flow voice-cleanup mode',
+          '/tasks — view Notion-style task board',
+          '/pages — list saved pages/notes',
           '/reminders — list active reminders',
-          '/notes — list saved notes',
+          '/usage — check Gemini spend guardrail',
+          '/authorize — unlock after $1.00 guardrail',
           '/clear — reset conversation memory',
-          '/help — show this message',
+          '/setchat — get this chat ID for .env',
         ].join('\n'),
+      );
+      return;
+    }
+
+    if (cmd === '/flow') {
+      const next = !this.store.isFlowMode(chatJid);
+      await this.store.setFlowMode(chatJid, next);
+      await this.sendText(
+        chatJid,
+        next
+          ? '🎙️ *Wispr Flow mode ON.* Send voice notes or rough text and I will reply only with clean, copy-paste-ready text. Send /flow again to exit.'
+          : '💬 *Wispr Flow mode OFF.* Back to normal assistant mode.',
+      );
+      return;
+    }
+
+    if (cmd === '/usage') {
+      const u = this.guardrail.getUsage();
+      await this.sendText(
+        chatJid,
+        [
+          `*Gemini Spend Guardrail*`,
+          `Estimated spend: *$${u.estimatedUsd.toFixed(4)}* / $${u.budgetLimitUsd.toFixed(2)}`,
+          `Tokens: ${u.promptTokens.toLocaleString()} in / ${u.outputTokens.toLocaleString()} out`,
+          `Status: ${u.locked ? '🛑 PAUSED (send /authorize to resume)' : '✅ Active'}`,
+        ].join('\n'),
+      );
+      return;
+    }
+
+    if (cmd === '/authorize' || cmd.startsWith('/authorize ')) {
+      const arg = rawText.slice('/authorize'.length).trim();
+      const amount = arg ? Number(arg) : 1.0;
+      const updated = await this.store.authorizeBudget(Number.isFinite(amount) && amount > 0 ? amount : 1.0);
+      await this.sendText(
+        chatJid,
+        `✅ Authorized! New spend guardrail limit is *$${updated.budgetLimitUsd.toFixed(2)}* (current spend: $${updated.estimatedUsd.toFixed(4)}).`,
       );
       return;
     }
@@ -218,20 +300,33 @@ export class WhatsAppBridge {
       return;
     }
 
-    if (cmd === '/notes') {
-      const notes = this.store.listNotes().slice(0, 10);
-      if (notes.length === 0) {
-        await this.sendText(chatJid, 'No saved notes yet.');
+    if (cmd === '/tasks') {
+      const tasks = this.store.listTasks().filter((t) => t.status !== 'done');
+      if (tasks.length === 0) {
+        await this.sendText(chatJid, 'No open tasks.');
         return;
       }
-      const lines = notes.map((n) => `• *${n.title}*: ${n.content.slice(0, 80)}`);
-      await this.sendText(chatJid, `*Saved Notes:*\n${lines.join('\n')}`);
+      const lines = tasks.map(
+        (t) => `• [${t.id}] (${t.status}, ${t.priority}) *${t.title}* — _${t.category}_`,
+      );
+      await this.sendText(chatJid, `*Open Tasks:*\n${lines.join('\n')}`);
+      return;
+    }
+
+    if (cmd === '/pages' || cmd === '/notes') {
+      const notes = this.store.listNotes().slice(0, 10);
+      if (notes.length === 0) {
+        await this.sendText(chatJid, 'No saved pages yet.');
+        return;
+      }
+      const lines = notes.map((n) => `• [${n.category}] *${n.title}*: ${n.content.slice(0, 70)}`);
+      await this.sendText(chatJid, `*Saved Pages:*\n${lines.join('\n')}`);
       return;
     }
 
     try {
       await this.sock?.sendPresenceUpdate('composing', chatJid);
-      const response = await this.brain.reply(chatJid, text);
+      const response = await this.brain.reply(chatJid, input);
 
       if (response.text) {
         await this.sendText(chatJid, response.text);

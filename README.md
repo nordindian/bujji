@@ -1,48 +1,52 @@
-# Bujji — Personal WhatsApp AI Assistant (No API Keys)
+# Bujji — Personal WhatsApp AI Assistant
 
-Bujji is a lightweight personal assistant you chat with on **WhatsApp** (phone + desktop), powered locally by **Ollama** on your Windows laptop.
+Bujji is a lightweight personal assistant you chat with on **WhatsApp** (phone + desktop), powered by **Gemini API** (default, fast, native voice) or local **Ollama** (`qwen2.5:3b`).
 
-- **Zero API keys** — runs 100% locally with `qwen2.5:3b` (fits comfortably on 8 GB RAM).
-- **Reminders** — natural-language reminders (`in 20 minutes`, `tomorrow at 9am`, daily/weekly) sent to your WhatsApp when due.
-- **Tap-to-add Calendar (`.ics`)** — ask Bujji to schedule an event and it sends a `.ics` file in WhatsApp; tap it on Android to add straight to your calendar.
-- **Notes & Brainstorming** — saves business ideas and remembers conversation context.
+- **Grok Bot things:** Reminders, tap-to-add `.ics` calendar invites, business strategy brainstorming.
+- **Wispr Flow things:** Send WhatsApp voice notes → Gemini transcribes & polishes rambling speech (`/flow` mode) or executes spoken tasks.
+- **Notion things:** Structured Pages & Task Board (`Todo` / `In Progress` / `Done`) + local web dashboard at `http://127.0.0.1:3000`.
+- **$1.00 Spend Guardrail:** Tracks token spend locally, pauses Gemini at `$1.00` (`GEMINI_BUDGET_LIMIT_USD`), alerts you on WhatsApp (and optional email), and waits for `/authorize`.
 
 ---
 
 ## Setup on Windows
 
-### 1. Install Node.js & Ollama
-1. Install **Node.js 20+** (LTS) from [nodejs.org](https://nodejs.org/).
-2. Install **Ollama** from [ollama.com/download/windows](https://ollama.com/download/windows).
-3. Open **Command Prompt** or **PowerShell** and pull the 3B model:
-   ```cmd
-   ollama pull qwen2.5:3b
-   ```
-
-### 2. Install & Start Bujji
-```cmd
-git clone https://github.com/nordindian/bujji.git
-cd bujji
+### 1. Pull & Install
+```powershell
+cd ~\bujji
+git pull
 copy .env.example .env
 npm install
+```
+
+### 2. Add Your Gemini API Key Safely
+Open `C:\Users\<YourName>\bujji\.env` in Notepad (never commit `.env` to GitHub—it is in `.gitignore`):
+```env
+BRAIN_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
+GEMINI_BUDGET_LIMIT_USD=1.00
+```
+*(Optional email alert when the $1.00 guardrail triggers: fill in `ALERT_EMAIL`, `SMTP_USER`, and a Gmail App Password in `SMTP_PASS`.)*
+
+### 3. Start Bujji
+```powershell
 npm start
 ```
-*(Or double-click `start-bujji.bat` after running `npm install` once.)*
+Open **http://127.0.0.1:3000** in your browser to view your Notion-style workspace.
 
-### 3. Link WhatsApp
-1. When Bujji starts, it prints a **QR code** in the terminal.
-2. On your Android phone, open **WhatsApp → ⋮ Menu → Linked Devices → Link a Device** and scan the QR code.
-3. Open your **"Message Yourself"** chat in WhatsApp and send `/help` or a normal message!
-
-> **Note:** Your Windows laptop needs to stay awake and running Ollama + Bujji for WhatsApp replies and scheduled reminders to fire.
+### 4. Dedicated "Bujji" Chat in WhatsApp (Optional)
+1. Create a WhatsApp group on your phone with one person, then remove them so it's a **1-person group** named **Bujji**.
+2. Send `/setchat` in that group.
+3. Copy the printed `ALLOWED_CHATS=...` line into `.env` and restart Bujji.
 
 ---
 
-## Commands in WhatsApp
-- `/help` — show examples and commands
+## WhatsApp Commands
+- `/flow` — toggle Wispr Flow voice-cleanup mode
+- `/tasks` — view open tasks
+- `/pages` — list saved Notion-style pages
 - `/reminders` — list active reminders
-- `/notes` — list saved notes
+- `/usage` — check Gemini spend guardrail
+- `/authorize` — unlock and add `$1.00` to the guardrail after a pause
 - `/clear` — reset conversation memory
-
-## Optional: Switch Brain to Claude CLI
-If you ever want deeper business strategy brainstorming using your existing Claude subscription login (instead of local 3B Ollama), install the Claude CLI, sign in once, and set `BRAIN_PROVIDER=claude-cli` in `.env`.
+- `/setchat` — print the current chat JID for `.env`

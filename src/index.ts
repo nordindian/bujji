@@ -1,18 +1,31 @@
 import { createBrain } from './brain/index.js';
 import { loadConfig } from './config.js';
+import { BudgetGuardrail } from './guardrail.js';
 import { ReminderScheduler } from './scheduler.js';
 import { JsonStore } from './store.js';
+import { startWebDashboard } from './web.js';
 import { WhatsAppBridge } from './whatsapp.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const store = new JsonStore(config.dataDir);
+  const store = new JsonStore(config.dataDir, config.geminiBudgetLimitUsd);
   await store.init();
 
-  console.log(`Starting Bujji (brain: ${config.brainProvider}, model: ${config.ollamaModel})...`);
+  const modelName =
+    config.brainProvider === 'gemini'
+      ? config.geminiModel
+      : config.brainProvider === 'ollama'
+        ? config.ollamaModel
+        : 'claude-cli';
+  console.log(`Starting Bujji (brain: ${config.brainProvider}, model: ${modelName})...`);
 
-  const brain = createBrain(config, store);
-  const whatsapp = new WhatsAppBridge(config, store, brain);
+  let whatsapp: WhatsAppBridge;
+  const guardrail = new BudgetGuardrail(config, store, async (chatJid, text) => {
+    await whatsapp.sendText(chatJid, text);
+  });
+
+  const brain = createBrain(config, store, guardrail);
+  whatsapp = new WhatsAppBridge(config, store, brain, guardrail);
 
   const scheduler = new ReminderScheduler(
     store,
@@ -22,6 +35,7 @@ async function main(): Promise<void> {
     },
   );
 
+  const webServer = startWebDashboard(config.webPort, store);
   await whatsapp.start();
   scheduler.start();
 
@@ -29,6 +43,7 @@ async function main(): Promise<void> {
     console.log('\nShutting down Bujji...');
     scheduler.stop();
     whatsapp.stop();
+    webServer?.close();
     process.exit(0);
   };
 

@@ -1,27 +1,56 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ChatMessage, Note, Recurrence, Reminder } from './types.js';
+import type {
+  ChatMessage,
+  Note,
+  Recurrence,
+  Reminder,
+  Task,
+  TaskPriority,
+  TaskStatus,
+  UsageState,
+} from './types.js';
 
 interface StoreData {
   reminders: Reminder[];
   notes: Note[];
+  tasks: Task[];
   history: Record<string, ChatMessage[]>;
+  flowChats: Record<string, boolean>;
+  usage: UsageState;
 }
 
-const DEFAULT_DATA: StoreData = {
-  reminders: [],
-  notes: [],
-  history: {},
-};
+function defaultUsage(budgetLimitUsd = 1.0): UsageState {
+  return {
+    promptTokens: 0,
+    outputTokens: 0,
+    estimatedUsd: 0,
+    budgetLimitUsd,
+    locked: false,
+    alertSent: false,
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
 
 export class JsonStore {
   private readonly filePath: string;
-  private data: StoreData = structuredClone(DEFAULT_DATA);
+  private data: StoreData;
   private writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(dataDir: string) {
+  constructor(
+    dataDir: string,
+    private readonly defaultBudgetLimitUsd = 1.0,
+  ) {
     this.filePath = path.join(dataDir, 'bujji.json');
+    this.data = {
+      reminders: [],
+      notes: [],
+      tasks: [],
+      history: {},
+      flowChats: {},
+      usage: defaultUsage(defaultBudgetLimitUsd),
+    };
   }
 
   async init(): Promise<void> {
@@ -31,9 +60,25 @@ export class JsonStore {
       const parsed = JSON.parse(raw) as Partial<StoreData>;
       this.data = {
         reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [],
-        notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+        notes: Array.isArray(parsed.notes)
+          ? parsed.notes.map((n) => ({ ...n, category: n.category || 'General' }))
+          : [],
+        tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         history: parsed.history && typeof parsed.history === 'object' ? parsed.history : {},
+        flowChats:
+          parsed.flowChats && typeof parsed.flowChats === 'object' ? parsed.flowChats : {},
+        usage:
+          parsed.usage && typeof parsed.usage === 'object'
+            ? {
+                ...defaultUsage(this.defaultBudgetLimitUsd),
+                ...parsed.usage,
+                budgetLimitUsd: this.defaultBudgetLimitUsd,
+              }
+            : defaultUsage(this.defaultBudgetLimitUsd),
       };
+      if (this.data.usage.estimatedUsd >= this.data.usage.budgetLimitUsd) {
+        this.data.usage.locked = true;
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         await this.persist();
@@ -124,18 +169,21 @@ export class JsonStore {
     return true;
   }
 
-  // --- Notes ---
+  // --- Notion-style Pages / Notes ---
 
   async saveNote(input: {
     title: string;
     content: string;
+    category?: string;
     tags?: string[];
   }): Promise<Note> {
     const now = new Date().toISOString();
+    const category = (input.category ?? 'General').trim() || 'General';
     const existing = this.data.notes.find(
       (n) => n.title.toLowerCase() === input.title.trim().toLowerCase(),
     );
     if (existing) {
+      existing.category = input.category ? category : existing.category;
       existing.content = input.content.trim();
       existing.tags = input.tags ?? existing.tags;
       existing.updatedAt = now;
@@ -145,6 +193,7 @@ export class JsonStore {
 
     const note: Note = {
       id: crypto.randomUUID().slice(0, 8),
+      category,
       title: input.title.trim(),
       content: input.content.trim(),
       tags: input.tags ?? [],
@@ -156,8 +205,11 @@ export class JsonStore {
     return note;
   }
 
-  listNotes(): Note[] {
-    return [...this.data.notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  listNotes(category?: string): Note[] {
+    const cat = category?.trim().toLowerCase();
+    return this.data.notes
+      .filter((n) => !cat || n.category.toLowerCase() === cat)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   searchNotes(query: string): Note[] {
@@ -166,9 +218,122 @@ export class JsonStore {
     return this.listNotes().filter(
       (n) =>
         n.title.toLowerCase().includes(q) ||
+        n.category.toLowerCase().includes(q) ||
         n.content.toLowerCase().includes(q) ||
         n.tags.some((t) => t.toLowerCase().includes(q)),
     );
+  }
+
+  getNoteByTitleOrId(titleOrId: string): Note | undefined {
+    const q = titleOrId.trim().toLowerCase();
+    return this.data.notes.find(
+      (n) => n.id.toLowerCase() === q || n.title.toLowerCase() === q,
+    );
+  }
+
+  // --- Notion-style Task Board ---
+
+  async addTask(input: {
+    title: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    category?: string;
+    dueAt?: string;
+    notes?: string;
+  }): Promise<Task> {
+    const now = new Date().toISOString();
+    const task: Task = {
+      id: crypto.randomUUID().slice(0, 8),
+      title: input.title.trim(),
+      status: input.status ?? 'todo',
+      priority: input.priority ?? 'medium',
+      category: (input.category ?? 'General').trim() || 'General',
+      dueAt: input.dueAt ? new Date(input.dueAt).toISOString() : undefined,
+      notes: input.notes?.trim() || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.data.tasks.push(task);
+    await this.persist();
+    return task;
+  }
+
+  listTasks(filter?: { status?: TaskStatus; category?: string }): Task[] {
+    const cat = filter?.category?.trim().toLowerCase();
+    return this.data.tasks
+      .filter((t) => (!filter?.status || t.status === filter.status) && (!cat || t.category.toLowerCase() === cat))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async updateTask(
+    id: string,
+    patch: { status?: TaskStatus; priority?: TaskPriority; title?: string; notes?: string },
+  ): Promise<Task | null> {
+    const task = this.data.tasks.find((t) => t.id === id);
+    if (!task) return null;
+    if (patch.status) task.status = patch.status;
+    if (patch.priority) task.priority = patch.priority;
+    if (patch.title?.trim()) task.title = patch.title.trim();
+    if (patch.notes !== undefined) task.notes = patch.notes.trim() || undefined;
+    task.updatedAt = new Date().toISOString();
+    await this.persist();
+    return task;
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    const idx = this.data.tasks.findIndex((t) => t.id === id);
+    if (idx === -1) return false;
+    this.data.tasks.splice(idx, 1);
+    await this.persist();
+    return true;
+  }
+
+  // --- Wispr Flow Dictation Mode ---
+
+  isFlowMode(chatJid: string): boolean {
+    return Boolean(this.data.flowChats[chatJid]);
+  }
+
+  async setFlowMode(chatJid: string, enabled: boolean): Promise<void> {
+    this.data.flowChats[chatJid] = enabled;
+    await this.persist();
+  }
+
+  // --- Spend Guardrail ---
+
+  getUsage(): UsageState {
+    return { ...this.data.usage };
+  }
+
+  async recordUsage(promptTokens: number, outputTokens: number, costUsd: number): Promise<UsageState> {
+    this.data.usage.promptTokens += Math.max(0, promptTokens);
+    this.data.usage.outputTokens += Math.max(0, outputTokens);
+    this.data.usage.estimatedUsd = Number((this.data.usage.estimatedUsd + Math.max(0, costUsd)).toFixed(6));
+    this.data.usage.lastUpdatedAt = new Date().toISOString();
+
+    if (this.data.usage.estimatedUsd >= this.data.usage.budgetLimitUsd) {
+      this.data.usage.locked = true;
+    }
+
+    await this.persist();
+    return this.getUsage();
+  }
+
+  async markAlertSent(): Promise<void> {
+    this.data.usage.alertSent = true;
+    await this.persist();
+  }
+
+  async authorizeBudget(additionalUsd = 1.0): Promise<UsageState> {
+    const delta = Number.isFinite(additionalUsd) && additionalUsd > 0 ? additionalUsd : 1.0;
+    this.data.usage.budgetLimitUsd = Number(
+      (Math.max(this.data.usage.budgetLimitUsd, this.data.usage.estimatedUsd) + delta).toFixed(2),
+    );
+    this.data.usage.locked = false;
+    this.data.usage.alertSent = false;
+    this.data.usage.lastUpdatedAt = new Date().toISOString();
+    await this.persist();
+    return this.getUsage();
   }
 
   // --- Conversation History ---

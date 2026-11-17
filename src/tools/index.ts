@@ -1,6 +1,12 @@
 import { buildIcsEvent } from '../ics.js';
 import type { JsonStore } from '../store.js';
-import type { Attachment, OllamaToolDefinition, Recurrence } from '../types.js';
+import type {
+  Attachment,
+  OllamaToolDefinition,
+  Recurrence,
+  TaskPriority,
+  TaskStatus,
+} from '../types.js';
 
 export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
   {
@@ -66,10 +72,7 @@ export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          id: {
-            type: 'string',
-            description: 'The reminder ID.',
-          },
+          id: { type: 'string', description: 'The reminder ID.' },
         },
         required: ['id'],
       },
@@ -83,10 +86,7 @@ export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          id: {
-            type: 'string',
-            description: 'The reminder ID.',
-          },
+          id: { type: 'string', description: 'The reminder ID.' },
         },
         required: ['id'],
       },
@@ -101,26 +101,14 @@ export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          title: {
-            type: 'string',
-            description: 'Title of the calendar event.',
-          },
-          startIso: {
-            type: 'string',
-            description: 'Event start date/time in ISO 8601 format.',
-          },
+          title: { type: 'string', description: 'Title of the calendar event.' },
+          startIso: { type: 'string', description: 'Event start date/time in ISO 8601 format.' },
           endIso: {
             type: 'string',
             description: 'Optional event end date/time in ISO 8601 format (defaults to +1 hour).',
           },
-          location: {
-            type: 'string',
-            description: 'Optional meeting link or physical location.',
-          },
-          description: {
-            type: 'string',
-            description: 'Optional event notes or agenda.',
-          },
+          location: { type: 'string', description: 'Optional meeting link or physical location.' },
+          description: { type: 'string', description: 'Optional event notes or agenda.' },
         },
         required: ['title', 'startIso'],
       },
@@ -131,16 +119,20 @@ export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
     function: {
       name: 'save_note',
       description:
-        'Save or update a persistent note (great for business ideas, strategy decisions, or reference info).',
+        'Create or update a Notion-style page/note in the workspace (e.g. Business Strategy, Ideas, Meetings, Personal).',
       parameters: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: 'Short note title.' },
-          content: { type: 'string', description: 'Body of the note.' },
+          title: { type: 'string', description: 'Page/note title.' },
+          content: { type: 'string', description: 'Markdown or plain text content of the page.' },
+          category: {
+            type: 'string',
+            description: 'Folder/category name such as Business Strategy, Ideas, Meetings, General.',
+          },
           tags: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional category tags.',
+            description: 'Optional tags.',
           },
         },
         required: ['title', 'content'],
@@ -150,14 +142,119 @@ export const TOOL_DEFINITIONS: OllamaToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'list_pages',
+      description: 'List all Notion-style pages/notes, optionally filtered by category.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'Optional category/folder filter.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'search_notes',
-      description: 'Search saved notes by keyword or tag.',
+      description: 'Search saved pages and notes by keyword, category, or tag.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search keyword (empty returns recent notes).' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'export_note_file',
+      description:
+        'Export a saved note/page as a .txt file in WhatsApp so the user can open or share it to Samsung Notes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          titleOrId: { type: 'string', description: 'The note title or ID to export.' },
+        },
+        required: ['titleOrId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_task',
+      description: 'Add a task to the Notion-style task board (todo, in_progress, done).',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Task title.' },
+          status: {
+            type: 'string',
+            enum: ['todo', 'in_progress', 'done'],
+            description: 'Initial status. Defaults to todo.',
+          },
+          priority: {
+            type: 'string',
+            enum: ['low', 'medium', 'high'],
+            description: 'Priority level. Defaults to medium.',
+          },
+          category: { type: 'string', description: 'Project or category name.' },
+          dueAtIso: { type: 'string', description: 'Optional due date in ISO 8601 format.' },
+          notes: { type: 'string', description: 'Optional task details.' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_tasks',
+      description: 'List tasks from the Notion-style task board.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['todo', 'in_progress', 'done'],
+            description: 'Optional status filter.',
+          },
+          category: { type: 'string', description: 'Optional category/project filter.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task',
+      description: 'Update a task status, priority, title, or notes by its ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The task ID.' },
+          status: { type: 'string', enum: ['todo', 'in_progress', 'done'] },
+          priority: { type: 'string', enum: ['low', 'medium', 'high'] },
+          title: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_task',
+      description: 'Delete a task by its ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The task ID.' },
+        },
+        required: ['id'],
       },
     },
   },
@@ -211,8 +308,7 @@ export async function executeTool(
 
       case 'list_reminders': {
         const includeCompleted = Boolean(args.includeCompleted);
-        const reminders = store.listReminders(includeCompleted);
-        return { output: JSON.stringify({ reminders }) };
+        return { output: JSON.stringify({ reminders: store.listReminders(includeCompleted) }) };
       }
 
       case 'complete_reminder': {
@@ -259,17 +355,118 @@ export async function executeTool(
       case 'save_note': {
         const title = String(args.title ?? '').trim();
         const content = String(args.content ?? '').trim();
+        const category = args.category ? String(args.category).trim() : undefined;
         const tags = Array.isArray(args.tags) ? args.tags.map(String) : [];
         if (!title || !content) return { output: 'Error: title and content are required.' };
 
-        const note = await store.saveNote({ title, content, tags });
+        const note = await store.saveNote({ title, content, category, tags });
         return { output: JSON.stringify({ saved: note }) };
+      }
+
+      case 'list_pages': {
+        const category = args.category ? String(args.category) : undefined;
+        const notes = store.listNotes(category).map((n) => ({
+          id: n.id,
+          category: n.category,
+          title: n.title,
+          updatedAt: n.updatedAt,
+        }));
+        return { output: JSON.stringify({ pages: notes }) };
       }
 
       case 'search_notes': {
         const query = String(args.query ?? '');
         const notes = store.searchNotes(query).slice(0, 10);
         return { output: JSON.stringify({ notes }) };
+      }
+
+      case 'export_note_file': {
+        const titleOrId = String(args.titleOrId ?? '').trim();
+        const note = store.getNoteByTitleOrId(titleOrId);
+        if (!note) return { output: `Note "${titleOrId}" not found.` };
+
+        const slug =
+          note.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 48) || 'note';
+        const body = `# ${note.title}\nCategory: ${note.category}\nUpdated: ${note.updatedAt}\n\n${note.content}\n`;
+
+        return {
+          output: JSON.stringify({ exported: note.title, filename: `${slug}.txt` }),
+          attachment: {
+            filename: `${slug}.txt`,
+            mimetype: 'text/plain',
+            buffer: Buffer.from(body, 'utf8'),
+            caption: `📝 ${note.title} (open or share to Samsung Notes)`,
+          },
+        };
+      }
+
+      case 'create_task': {
+        const title = String(args.title ?? '').trim();
+        if (!title) return { output: 'Error: title is required.' };
+        const statusRaw = String(args.status ?? 'todo');
+        const status: TaskStatus =
+          statusRaw === 'in_progress' || statusRaw === 'done' ? statusRaw : 'todo';
+        const prioRaw = String(args.priority ?? 'medium');
+        const priority: TaskPriority =
+          prioRaw === 'low' || prioRaw === 'high' ? prioRaw : 'medium';
+
+        const dueAt = args.dueAtIso ? String(args.dueAtIso) : undefined;
+        if (dueAt && Number.isNaN(new Date(dueAt).getTime())) {
+          return { output: `Error: invalid dueAtIso "${dueAt}".` };
+        }
+
+        const task = await store.addTask({
+          title,
+          status,
+          priority,
+          category: args.category ? String(args.category) : undefined,
+          dueAt,
+          notes: args.notes ? String(args.notes) : undefined,
+        });
+        return { output: JSON.stringify({ created: task }) };
+      }
+
+      case 'list_tasks': {
+        const statusRaw = args.status ? String(args.status) : undefined;
+        const status: TaskStatus | undefined =
+          statusRaw === 'todo' || statusRaw === 'in_progress' || statusRaw === 'done'
+            ? statusRaw
+            : undefined;
+        const category = args.category ? String(args.category) : undefined;
+        return { output: JSON.stringify({ tasks: store.listTasks({ status, category }) }) };
+      }
+
+      case 'update_task': {
+        const id = String(args.id ?? '').trim();
+        if (!id) return { output: 'Error: id is required.' };
+        const statusRaw = args.status ? String(args.status) : undefined;
+        const status: TaskStatus | undefined =
+          statusRaw === 'todo' || statusRaw === 'in_progress' || statusRaw === 'done'
+            ? statusRaw
+            : undefined;
+        const prioRaw = args.priority ? String(args.priority) : undefined;
+        const priority: TaskPriority | undefined =
+          prioRaw === 'low' || prioRaw === 'medium' || prioRaw === 'high' ? prioRaw : undefined;
+
+        const updated = await store.updateTask(id, {
+          status,
+          priority,
+          title: args.title ? String(args.title) : undefined,
+          notes: args.notes !== undefined ? String(args.notes) : undefined,
+        });
+        return {
+          output: updated ? JSON.stringify({ updated }) : `Task ${id} not found.`,
+        };
+      }
+
+      case 'delete_task': {
+        const id = String(args.id ?? '').trim();
+        const ok = await store.deleteTask(id);
+        return { output: ok ? `Deleted task ${id}.` : `Task ${id} not found.` };
       }
 
       default:

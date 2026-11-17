@@ -1,7 +1,7 @@
 import type { AppConfig } from '../config.js';
 import type { JsonStore } from '../store.js';
 import { executeTool, TOOL_DEFINITIONS } from '../tools/index.js';
-import type { Attachment, Brain, BrainResponse, ChatMessage, OllamaToolCall } from '../types.js';
+import type { Attachment, Brain, BrainInput, BrainResponse, ChatMessage, OllamaToolCall } from '../types.js';
 
 interface OllamaChatResponse {
   message?: {
@@ -23,11 +23,12 @@ export function buildSystemPrompt(): string {
     'Capabilities:',
     '- Create, list, complete, and delete reminders.',
     '- Create tap-to-add .ics calendar invites when the user asks to schedule an event or meeting.',
-    '- Save and search persistent notes for tasks and business strategy brainstorming.',
+    '- Manage a Notion-style workspace: save/search structured pages (save_note, list_pages, search_notes, export_note_file) and manage tasks (create_task, list_tasks, update_task, delete_task).',
     '- Brainstorm business strategy clearly with structured, actionable points.',
+    '- If the user sends a voice note asking to clean up or format dictation, polish it cleanly.',
     'Rules:',
     '- Keep WhatsApp replies crisp and readable (use short paragraphs or bullet points).',
-    '- When the user asks for a reminder or calendar event with a relative time (like "in 10 minutes" or "tomorrow at 3pm"), convert it accurately to ISO 8601 using the current date/time above before calling the tool.',
+    '- When the user asks for a reminder, task due date, or calendar event with a relative time (like "in 10 minutes" or "tomorrow at 3pm"), convert it accurately to ISO 8601 using the current date/time above before calling the tool.',
     '- Never invent tool results; call the tool first and report what actually happened.',
   ].join('\n');
 }
@@ -38,7 +39,15 @@ export class OllamaBrain implements Brain {
     private readonly store: JsonStore,
   ) {}
 
-  async reply(chatJid: string, userMessage: string): Promise<BrainResponse> {
+  async reply(chatJid: string, input: BrainInput): Promise<BrainResponse> {
+    if (input.audio && !input.text) {
+      return {
+        text: 'Voice notes require BRAIN_PROVIDER=gemini in .env (Ollama only reads text).',
+        attachments: [],
+      };
+    }
+
+    const userMessage = (input.text ?? '').trim();
     const history = this.store.getHistory(chatJid);
     const messages: ChatMessage[] = [
       { role: 'system', content: buildSystemPrompt() },
