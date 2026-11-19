@@ -1,61 +1,19 @@
-import https from 'node:https';
 import type { AppConfig } from '../config.js';
 import type { BudgetGuardrail } from '../guardrail.js';
+import { requestIpv4 } from '../http.js';
 import type { JsonStore } from '../store.js';
 import { executeTool, TOOL_DEFINITIONS } from '../tools/index.js';
 import type { Attachment, Brain, BrainInput, BrainResponse } from '../types.js';
 import { buildSystemPrompt } from './ollama.js';
 
-async function postJsonIpv4(
+function postJsonIpv4(
   hostname: string,
   path: string,
   headers: Record<string, string>,
   body: string,
   timeoutMs: number,
-): Promise<{ status: number; rawBody: string }> {
-  // Respect mocked global fetch in unit tests
-  if (typeof globalThis.fetch === 'function' && 'mock' in globalThis.fetch) {
-    const res = await globalThis.fetch(`https://${hostname}${path}`, {
-      method: 'POST',
-      headers,
-      body,
-    });
-    return { status: res.status ?? (res.ok ? 200 : 500), rawBody: JSON.stringify(await res.json()) };
-  }
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname,
-        port: 443,
-        path,
-        method: 'POST',
-        family: 4,
-        headers: {
-          ...headers,
-          'Content-Length': Buffer.byteLength(body).toString(),
-        },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          resolve({
-            status: res.statusCode ?? 500,
-            rawBody: Buffer.concat(chunks).toString('utf8'),
-          });
-        });
-      },
-    );
-
-    req.on('timeout', () => {
-      req.destroy(new Error(`Gemini request timed out after ${timeoutMs / 1000}s`));
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+) {
+  return requestIpv4('POST', `https://${hostname}${path}`, headers, body, timeoutMs);
 }
 
 interface GeminiPart {

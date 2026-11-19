@@ -98,13 +98,22 @@ export class WhatsAppBridge {
   private async connect(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
     const { version } = await fetchLatestBaileysVersion();
+    const recentMessages = new Map<string, any>();
 
     const sock = makeWASocket({
       version,
       auth: state,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      markOnlineOnConnect: false,
+      markOnlineOnConnect: true,
+      syncFullHistory: false,
+      generateHighQualityLinkPreview: false,
+      getMessage: async (key) => {
+        if (key.id && recentMessages.has(key.id)) {
+          return recentMessages.get(key.id);
+        }
+        return { conversation: ' ' };
+      },
     });
 
     this.sock = sock;
