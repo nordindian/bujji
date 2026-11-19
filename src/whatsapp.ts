@@ -108,6 +108,17 @@ export class WhatsAppBridge {
   }
 
   private async connect(): Promise<void> {
+    // Tear down any previous socket so old listeners don't keep running after a reconnect
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners('messages.upsert');
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.end(undefined);
+      } catch {
+        /* ignore */
+      }
+      this.sock = null;
+    }
     const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -116,7 +127,8 @@ export class WhatsAppBridge {
       auth: state,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      markOnlineOnConnect: true,
+      // false so the phone keeps receiving push notifications while the bot is linked
+      markOnlineOnConnect: false,
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
       getMessage: async (key) => {
@@ -152,6 +164,14 @@ export class WhatsAppBridge {
         if (loggedOut) {
           console.error(
             'WhatsApp session logged out. Delete the auth_info folder and restart to scan a new QR code.',
+          );
+          return;
+        }
+
+        if (statusCode === DisconnectReason.connectionReplaced) {
+          console.error(
+            'WhatsApp session was REPLACED: another Bujji instance (laptop or VM) is using the same auth_info. ' +
+              'Run only ONE instance per auth_info. Not reconnecting, to avoid a tug-of-war.',
           );
           return;
         }
