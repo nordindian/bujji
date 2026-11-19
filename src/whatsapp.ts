@@ -49,6 +49,7 @@ export function extractText(msg: WAMessage): string {
 export class WhatsAppBridge {
   private sock: WASocket | null = null;
   private readonly sentMessageIds = new Set<string>();
+  private readonly recentMessages = new Map<string, any>();
   private stopped = false;
 
   constructor(
@@ -78,10 +79,20 @@ export class WhatsAppBridge {
     }
   }
 
+  private storeRecentMessage(id: string | null | undefined, messageContent: any): void {
+    if (!id || !messageContent) return;
+    this.recentMessages.set(id, messageContent);
+    if (this.recentMessages.size > 500) {
+      const oldest = this.recentMessages.keys().next().value;
+      if (oldest) this.recentMessages.delete(oldest);
+    }
+  }
+
   async sendText(chatJid: string, text: string): Promise<void> {
     if (!this.sock) throw new Error('WhatsApp is not connected.');
     const sent = await this.sock.sendMessage(chatJid, { text });
     this.rememberSentId(sent?.key?.id);
+    this.storeRecentMessage(sent?.key?.id, sent?.message);
   }
 
   async sendAttachment(chatJid: string, attachment: Attachment): Promise<void> {
@@ -93,12 +104,12 @@ export class WhatsAppBridge {
       caption: attachment.caption,
     });
     this.rememberSentId(sent?.key?.id);
+    this.storeRecentMessage(sent?.key?.id, sent?.message);
   }
 
   private async connect(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
     const { version } = await fetchLatestBaileysVersion();
-    const recentMessages = new Map<string, any>();
 
     const sock = makeWASocket({
       version,
@@ -109,10 +120,10 @@ export class WhatsAppBridge {
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
       getMessage: async (key) => {
-        if (key.id && recentMessages.has(key.id)) {
-          return recentMessages.get(key.id);
+        if (key.id && this.recentMessages.has(key.id)) {
+          return this.recentMessages.get(key.id);
         }
-        return { conversation: ' ' };
+        return undefined;
       },
     });
 
